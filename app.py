@@ -17,10 +17,8 @@ Attendance -> WhatsApp absence alerts. ONE file, run from terminal:
 import csv, os, queue, random, re, threading, time, urllib.parse, webbrowser
 from datetime import date as _date, datetime
 
-from flask import Flask, jsonify, request, render_template_string, redirect, url_for, session, send_file, make_response
+from flask import Flask, jsonify, request, render_template_string
 from openpyxl import Workbook, load_workbook
-from werkzeug.middleware.proxy_fix import ProxyFix
-import hmac
 
 try:
     from playwright.sync_api import sync_playwright
@@ -29,16 +27,9 @@ except ImportError:
     HAS_PW = False
 
 SCHOOL = os.environ.get("SCHOOL_NAME", "School")
-DATA_DIR = os.environ.get("DATA_DIR", "/data")
-os.makedirs(DATA_DIR, exist_ok=True)
-XLSX = os.path.join(DATA_DIR, "students.xlsx")
-LOG = os.path.join(DATA_DIR, "attendance_log.csv")
-PROFILE = os.path.abspath(os.path.join(DATA_DIR, "wa_profile"))
-QR_FILE = os.path.join(DATA_DIR, "whatsapp_qr.png")
-BUNDLED_XLSX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "students.xlsx")
-if not os.path.exists(XLSX) and os.path.exists(BUNDLED_XLSX):
-    import shutil
-    shutil.copy2(BUNDLED_XLSX, XLSX)
+XLSX = "students.xlsx"
+LOG = "attendance_log.csv"
+PROFILE = os.path.abspath("wa_profile")
 FIELDS = ["date", "sid", "name", "class", "phone", "status", "sent", "note"]
 LOCK = threading.Lock()
 
@@ -124,19 +115,6 @@ class WA:
         self.job = {"running": False, "total": 0, "done": 0}
         self.thread = None
         self.error = ""
-        self.qr_updated = 0
-
-    def capture_qr(self, page):
-        """Capture the WhatsApp pairing QR for display in the authenticated dashboard."""
-        try:
-            for selector in ("canvas", 'img[alt*="QR"], img[alt*="qr"]'):
-                locator = page.locator(selector).first
-                if locator.count() and locator.is_visible():
-                    locator.screenshot(path=QR_FILE, timeout=3000)
-                    self.qr_updated = time.time()
-                    return
-        except Exception:
-            pass
 
     def start(self):
         if not HAS_PW:
@@ -154,7 +132,7 @@ class WA:
     def _run(self):
         try:
             with sync_playwright() as p:
-                ctx = p.chromium.launch_persistent_context(PROFILE, headless=True, args=["--no-sandbox", "--disable-dev-shm-usage"])
+                ctx = p.chromium.launch_persistent_context(PROFILE, headless=False)
                 try:
                     page = ctx.pages[0] if ctx.pages else ctx.new_page()
                     page.on("dialog", lambda d: d.accept())
@@ -164,8 +142,6 @@ class WA:
                             raise RuntimeError("WhatsApp window was closed. Click Reconnect.")
                         try:
                             self.state = "connected" if page.locator("#pane-side").count() else "login"
-                            if self.state == "login":
-                                self.capture_qr(page)
                         except Exception:
                             raise RuntimeError("WhatsApp window was closed. Click Reconnect.")
                         try:
@@ -237,73 +213,6 @@ wa = WA()
 
 # ---------------- Web app ----------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "")
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SECURE=os.environ.get("COOKIE_SECURE", "true").lower() not in ("0", "false", "no"),
-    SESSION_COOKIE_SAMESITE="Lax",
-    PERMANENT_SESSION_LIFETIME=__import__("datetime").timedelta(hours=12),
-)
-APP_USERNAME = os.environ.get("APP_USERNAME", "")
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
-
-@app.before_request
-def require_login():
-    if request.endpoint in ("login", "healthz") or request.path.startswith("/static/"):
-        return None
-    if not APP_USERNAME or not APP_PASSWORD or not app.secret_key:
-        return ("Application is not configured. Set APP_USERNAME, APP_PASSWORD and SECRET_KEY.", 503)
-    if session.get("authenticated") and session.get("username") == APP_USERNAME:
-        return None
-    if request.path.startswith("/api/"):
-        return jsonify(error="Authentication required"), 401
-    return redirect(url_for("login"))
-
-@app.get("/healthz")
-def healthz():
-    return jsonify(ok=True)
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    error = ""
-    if request.method == "POST":
-        username = request.form.get("username", "")
-        password = request.form.get("password", "")
-        if (APP_USERNAME and APP_PASSWORD and
-            hmac.compare_digest(username, APP_USERNAME) and
-            hmac.compare_digest(password, APP_PASSWORD)):
-            session.clear()
-            session["authenticated"] = True
-            session["username"] = APP_USERNAME
-            session.permanent = True
-            return redirect(url_for("home"))
-        error = "Incorrect username or password."
-    return render_template_string(LOGIN_PAGE, error=error)
-
-@app.post("/logout")
-def logout():
-    session.clear()
-    return redirect(url_for("login"))
-
-@app.get("/api/qr.png")
-def qr_image():
-    if not os.path.exists(QR_FILE):
-        return ("QR is not available yet. Click Connect WhatsApp and wait for the pairing code.", 404)
-    response = make_response(send_file(QR_FILE, mimetype="image/png"))
-    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-    return response
-
-LOGIN_PAGE = """<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Attendance Alerts Login</title><style>
-body{font-family:system-ui,sans-serif;background:#f5f6f8;display:grid;place-items:center;min-height:100vh;margin:0;color:#222}
-main{background:white;padding:28px;border-radius:14px;width:min(360px,calc(100% - 56px));box-shadow:0 2px 12px #0001}
-input,button{box-sizing:border-box;width:100%;padding:12px;margin:8px 0;border:1px solid #ccc;border-radius:7px;font:inherit}
-button{background:#15803d;color:white;border:0;font-weight:600}.error{color:#b91c1c}
-</style></head><body><main><h2>Attendance Alerts</h2><p>Sign in to continue.</p>
-<form method="post"><input name="username" autocomplete="username" placeholder="Username" required>
-<input name="password" type="password" autocomplete="current-password" placeholder="Password" required>
-<button type="submit">Sign in</button></form><p class="error">{{ error }}</p></main></body></html>"""
 
 
 @app.get("/api/status")
@@ -377,8 +286,8 @@ button,input{font:inherit;padding:8px 12px;border-radius:6px;border:1px solid #c
 button{background:#16a34a;color:#fff;border:0;cursor:pointer}button.g{background:#6b7280}button:disabled{opacity:.5}
 a.chat{color:#16a34a;font-weight:600;text-decoration:none}.ok{color:#16a34a;font-weight:600}.bad{color:#dc2626}small{color:#666}
 </style></head><body>
-<div class="card"><h2>1. WhatsApp</h2><div id="wa">...</div><div id="qrwrap" style="display:none;margin-top:12px"><img id="qr" alt="WhatsApp pairing QR" style="width:240px;max-width:100%;background:white"><p><small>Scan from WhatsApp → Linked devices → Link a device.</small></p></div></div>
-<div style="text-align:right;margin:8px 0"><form method="post" action="/logout"><button class="g" type="submit">Log out</button></form></div><div class="card"><h2>2. Attendance <input type="date" id="date" style="float:right"></h2>
+<div class="card"><h2>1. WhatsApp</h2><div id="wa">...</div></div>
+<div class="card"><h2>2. Attendance <input type="date" id="date" style="float:right"></h2>
 <small>Students come from <b>students.xlsx</b>. Tick the box for ABSENT students.</small>
 <table><thead><tr><th>Absent</th><th>Name</th><th>Class</th><th>Result</th><th>Manual</th></tr></thead><tbody id="tb"></tbody></table>
 <p><button id="send">Send absence alerts</button> <button class="g" onclick="load()">Reload from Excel</button> <label><input type=checkbox id=force> Send again to already-sent</label> <span id="msg"></span></p></div>
@@ -387,10 +296,10 @@ const $=id=>document.getElementById(id);$('date').value=new Date().toLocaleDateS
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const j=async(u,o)=>(await fetch(u,o&&{headers:{'Content-Type':'application/json'},...o})).json();
 async function st(){const s=await j('/api/status');let h='';
- if(s.wa==='connected'){h='<span class="ok">Connected</span>';$('qrwrap').style.display='none'}
- else if(s.wa==='login'){h='<span class="bad">Waiting for WhatsApp login</span> - scan the QR below.';$('qrwrap').style.display='block';$('qr').src='/api/qr.png?t='+Date.now()}
- else if(s.wa==='error'){h='<span class="bad">'+esc(s.error)+'</span> <button onclick="conn()">Reconnect</button>';$('qrwrap').style.display='none'}
- else {h=s.pw?'<button onclick="conn()">Connect WhatsApp</button>':'Auto-send unavailable (Playwright not installed). Use the <b>Open chat</b> links below.';$('qrwrap').style.display='none'}
+ if(s.wa==='connected')h='<span class="ok">Connected</span>';
+ else if(s.wa==='login')h='<span class="bad">Waiting for login</span> - scan the QR in the Chrome window that opened.';
+ else if(s.wa==='error')h='<span class="bad">'+esc(s.error)+'</span> <button onclick="conn()">Reconnect</button>';
+ else h=s.pw?'<button onclick="conn()">Connect WhatsApp</button>':'Auto-send unavailable (Playwright not installed). Use the <b>Open chat</b> links below.';
  $('wa').innerHTML=h;$('send').disabled=s.wa!=='connected'||s.job.running;
  if(s.job.running){$('msg').textContent='Sending '+s.job.done+'/'+s.job.total+'...';load(true)}}
 async function conn(){const r=await j('/api/connect',{method:'POST'});if(r.error)alert(r.error);st()}
@@ -416,5 +325,6 @@ def home():
 
 if __name__ == "__main__":
     ensure_sample()
-    print("Starting Attendance Alerts")
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False, threaded=True)
+    print("Open http://127.0.0.1:5000  (Ctrl+C to stop)")
+    threading.Timer(1.0, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
+    app.run(host="127.0.0.1", port=5000, debug=False, threaded=True)

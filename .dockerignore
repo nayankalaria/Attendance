@@ -1,0 +1,9 @@
+.git
+.env
+.venv
+__pycache__
+*.pyc
+wa_profile
+attendance_log.csv
+last_error.png
+.DS_Store

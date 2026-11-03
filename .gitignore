@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+/data/
+wa_profile/
+attendance_log.csv
+last_error.png

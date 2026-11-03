@@ -17,14 +17,8 @@ Attendance -> WhatsApp absence alerts. ONE file, run from terminal:
 import csv, os, queue, random, re, threading, time, urllib.parse, webbrowser
 from datetime import date as _date, datetime
 
-from flask import Flask, jsonify, request, render_template_string, redirect, url_for, session, send_file, make_response
+from flask import Flask, jsonify, request, render_template_string
 from openpyxl import Workbook, load_workbook
-from werkzeug.middleware.proxy_fix import ProxyFix
-import hmac
-
-app = Flask(__name__)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
-app.secret_key = os.environ.get("SECRET_KEY", "change-this-to-a-random-secret")
 
 try:
     from playwright.sync_api import sync_playwright
@@ -33,16 +27,9 @@ except ImportError:
     HAS_PW = False
 
 SCHOOL = os.environ.get("SCHOOL_NAME", "School")
-DATA_DIR = os.environ.get("DATA_DIR", "/data")
-os.makedirs(DATA_DIR, exist_ok=True)
-XLSX = os.path.join(DATA_DIR, "students.xlsx")
-LOG = os.path.join(DATA_DIR, "attendance_log.csv")
-PROFILE = os.path.abspath(os.path.join(DATA_DIR, "wa_profile"))
-QR_FILE = os.path.join(DATA_DIR, "whatsapp_qr.png")
-BUNDLED_XLSX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "students.xlsx")
-if not os.path.exists(XLSX) and os.path.exists(BUNDLED_XLSX):
-    import shutil
-    shutil.copy2(BUNDLED_XLSX, XLSX)
+XLSX = "students.xlsx"
+LOG = "attendance_log.csv"
+PROFILE = os.path.abspath("wa_profile")
 FIELDS = ["date", "sid", "name", "class", "phone", "status", "sent", "note"]
 LOCK = threading.Lock()
 
@@ -97,19 +84,13 @@ def load_students():
 def read_log():
     if not os.path.exists(LOG):
         return {}
-
     with open(LOG, newline="", encoding="utf-8") as f:
-        return {
-            (r["date"], r["sid"]): r
-            for r in csv.DictReader(f)
-        }
-        
-@app.route("/")
-def index():
-    return "Attendance app is running!"
+        return {(r["date"], r["sid"]): r for r in csv.DictReader(f)}
 
-@app.route("/__routes")
-def debug_routes():
-    return jsonify([
-        str(rule) for rule in app.url_map.iter_rules()
-    ])
+
+def upsert(day, s, **kw):
+    with LOCK:
+        d = read_log()
+        key = (day, s["sid"])
+        row = d.get(key) or {"date": day, "sid": s["sid"], "status": "present", "sent": "0", "note": ""}
+        row.update({"name": s["name"], "class": s["class"], "phone": s["phone"]})

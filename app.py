@@ -444,7 +444,7 @@ def debug():
         console_errors=wa.console_errors[-8:],
         page_errors=wa.page_errors[-8:],
         qr_error=wa.qr_error,
-        browser_version = page.context.browser.version if page.context.browser else "Unknown"
+        browser_version = page.context.browser.version if page.context.browser else "Unknown",
         user_agent = page.evaluate("navigator.userAgent")
     )
 

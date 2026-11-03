@@ -93,4 +93,9 @@ def load_students():
 def read_log():
     if not os.path.exists(LOG):
         return {}
+
     with open(LOG, newline="", encoding="utf-8") as f:
+        return {
+            (r["date"], r["sid"]): r
+            for r in csv.DictReader(f)
+        }

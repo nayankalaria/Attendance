@@ -136,6 +136,8 @@ class WA:
         self.console_errors = []
         self.page_errors = []
         self.last_response_status = None
+        self.browser_version = "Unknown"
+        self.user_agent = "Unknown"
         self.last_qr_attempt = 0
         self.stop_event = threading.Event()
 
@@ -219,6 +221,8 @@ class WA:
         self.console_errors = []
         self.page_errors = []
         self.last_response_status = None
+        self.browser_version = "Unknown"
+        self.user_agent = "Unknown"
         self.last_qr_attempt = 0
         self.qr_updated = 0
         try:
@@ -254,8 +258,10 @@ class WA:
                     viewport={"width": 1280, "height": 900},
                 )
                 self.browser_started = True
+                self.browser_version = ctx.browser.version if ctx.browser else "Unknown"
                 try:
                     page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                    self.user_agent = page.evaluate("() => navigator.userAgent")
                     page.on("dialog", lambda d: d.accept())
                     page.on("console", lambda msg: self.console_errors.append(msg.text[:300])
                             if msg.type == "error" and len(self.console_errors) < 12 else None)
@@ -441,11 +447,11 @@ def debug():
         visible_canvases=wa.visible_canvas_count,
         visible_images=wa.visible_image_count,
         last_response_status=wa.last_response_status,
+        browser_version=wa.browser_version,
+        user_agent=wa.user_agent,
         console_errors=wa.console_errors[-8:],
         page_errors=wa.page_errors[-8:],
         qr_error=wa.qr_error,
-        browser_version = page.context.browser.version if page.context.browser else "Unknown",
-        user_agent = page.evaluate("navigator.userAgent")
     )
 
 

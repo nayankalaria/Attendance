@@ -22,6 +22,10 @@ from openpyxl import Workbook, load_workbook
 from werkzeug.middleware.proxy_fix import ProxyFix
 import hmac
 
+app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+app.secret_key = os.environ.get("SECRET_KEY", "change-this-to-a-random-secret")
+
 try:
     from playwright.sync_api import sync_playwright
     HAS_PW = True

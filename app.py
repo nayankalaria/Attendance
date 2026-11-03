@@ -128,11 +128,36 @@ class WA:
         self.qr_error = ""
         self.browser_started = False
         self.page_url = ""
+        self.page_title = ""
+        self.ready_state = ""
+        self.body_text = ""
+        self.visible_canvas_count = 0
+        self.visible_image_count = 0
+        self.console_errors = []
+        self.page_errors = []
+        self.last_response_status = None
+        self.last_qr_attempt = 0
         self.stop_event = threading.Event()
+
+    def update_diagnostics(self, page):
+        """Store safe, limited diagnostics for the authenticated debug endpoint."""
+        try:
+            self.page_url = page.url
+            self.page_title = page.title()[:200]
+            self.ready_state = page.evaluate("() => document.readyState")
+            self.body_text = page.locator("body").inner_text(timeout=3000)[:800]
+            self.visible_canvas_count = page.locator("canvas:visible").count()
+            self.visible_image_count = page.locator("img:visible").count()
+        except Exception as exc:
+            self.qr_error = ("Page diagnostics: " + str(exc))[:240]
 
     def capture_qr(self, page):
         """Capture a visible WhatsApp pairing code and log useful diagnostics."""
         try:
+            # Avoid taking repeated full-page screenshots every two seconds.
+            if time.time() - self.last_qr_attempt < 6:
+                return False
+            self.last_qr_attempt = time.time()
             # WhatsApp has changed its QR markup over time. Try likely QR
             # elements first, then visible canvases (the QR is commonly a canvas).
             selectors = [
@@ -186,6 +211,15 @@ class WA:
         self.qr_error = ""
         self.browser_started = False
         self.page_url = ""
+        self.page_title = ""
+        self.ready_state = ""
+        self.body_text = ""
+        self.visible_canvas_count = 0
+        self.visible_image_count = 0
+        self.console_errors = []
+        self.page_errors = []
+        self.last_response_status = None
+        self.last_qr_attempt = 0
         self.qr_updated = 0
         try:
             if os.path.exists(QR_FILE):
@@ -223,14 +257,21 @@ class WA:
                 try:
                     page = ctx.pages[0] if ctx.pages else ctx.new_page()
                     page.on("dialog", lambda d: d.accept())
+                    page.on("console", lambda msg: self.console_errors.append(msg.text[:300])
+                            if msg.type == "error" and len(self.console_errors) < 12 else None)
+                    page.on("pageerror", lambda exc: self.page_errors.append(str(exc)[:300])
+                            if len(self.page_errors) < 12 else None)
+                    page.on("response", lambda response: setattr(self, "last_response_status", response.status)
+                            if "web.whatsapp.com" in response.url else None)
                     print("[wa] Navigating to WhatsApp Web", flush=True)
                     page.goto("https://web.whatsapp.com", wait_until="domcontentloaded", timeout=90000)
                     print(f"[wa] WhatsApp page loaded: {page.url}", flush=True)
+                    page.wait_for_timeout(10000)
                     while not self.stop_event.is_set():
                         if page.is_closed():
                             raise RuntimeError("WhatsApp page was closed. Click Reconnect.")
                         try:
-                            self.page_url = page.url
+                            self.update_diagnostics(page)
                             if page.locator("#pane-side").count():
                                 self.state = "connected"
                             else:
@@ -386,15 +427,34 @@ def status():
     )
 
 
+@app.get("/api/debug")
+def debug():
+    # This endpoint is protected by require_login. It intentionally omits
+    # QR image bytes, cookies, browser storage, and full page source.
+    return jsonify(
+        browser_started=wa.browser_started,
+        state=wa.state,
+        url=wa.page_url,
+        title=wa.page_title,
+        ready_state=wa.ready_state,
+        body_text=wa.body_text,
+        visible_canvases=wa.visible_canvas_count,
+        visible_images=wa.visible_image_count,
+        last_response_status=wa.last_response_status,
+        console_errors=wa.console_errors[-8:],
+        page_errors=wa.page_errors[-8:],
+        qr_error=wa.qr_error,
+    )
+
+
 @app.post("/api/connect")
 def connect():
     if not HAS_PW:
         return jsonify(error="Playwright not installed. Use the Open chat links instead."), 400
     if wa.thread and wa.thread.is_alive():
-        if not wa.restart():
-            return jsonify(error=wa.error), 409
-    else:
-        wa.start()
+        return jsonify(ok=True, already_running=True,
+                       message="WhatsApp browser is already running. Check /api/debug; do not reconnect repeatedly.")
+    wa.start()
     return jsonify(ok=True)
 
 

@@ -103,3 +103,13 @@ def read_log():
             (r["date"], r["sid"]): r
             for r in csv.DictReader(f)
         }
+        
+@app.route("/")
+def index():
+    return "Attendance app is running!"
+
+@app.route("/__routes")
+def debug_routes():
+    return jsonify([
+        str(rule) for rule in app.url_map.iter_rules()
+    ])

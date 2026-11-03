@@ -250,10 +250,10 @@ class WA:
 
     def _run(self):
         try:
-            print("[wa] Starting Playwright Chromium (headless)", flush=True)
+            print("[wa] Starting Playwright Chromium (visible remote desktop)", flush=True)
             with sync_playwright() as p:
                 ctx = p.chromium.launch_persistent_context(
-                    PROFILE, headless=True,
+                    PROFILE, headless=False,
                     args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
                     viewport={"width": 1280, "height": 900},
                 )
@@ -524,7 +524,7 @@ button,input{font:inherit;padding:8px 12px;border-radius:6px;border:1px solid #c
 button{background:#16a34a;color:#fff;border:0;cursor:pointer}button.g{background:#6b7280}button:disabled{opacity:.5}
 a.chat{color:#16a34a;font-weight:600;text-decoration:none}.ok{color:#16a34a;font-weight:600}.bad{color:#dc2626}small{color:#666}
 </style></head><body>
-<div class="card"><h2>1. WhatsApp</h2><div id="wa">...</div><div id="qrwrap" style="display:none;margin-top:12px"><img id="qr" alt="WhatsApp pairing QR" style="width:240px;max-width:100%;background:white"><p><small id="qrhint">Starting WhatsApp Web and waiting for the QR code…</small></p></div></div>
+<div class="card"><h2>1. WhatsApp</h2><p><a href="/remote/vnc.html?autoconnect=1&resize=remote&path=websockify" target="_blank" rel="noopener">Open remote WhatsApp browser in a new tab</a></p><small>Use the VNC password configured in Render when prompted. Start WhatsApp first, then open this tab.</small><div id="wa">...</div><div id="qrwrap" style="display:none;margin-top:12px"><img id="qr" alt="WhatsApp pairing QR" style="width:240px;max-width:100%;background:white"><p><small id="qrhint">Starting WhatsApp Web and waiting for the QR code…</small></p></div></div>
 <div style="text-align:right;margin:8px 0"><form method="post" action="/logout"><button class="g" type="submit">Log out</button></form></div><div class="card"><h2>2. Attendance <input type="date" id="date" style="float:right"></h2>
 <small>Students come from <b>students.xlsx</b>. Tick the box for ABSENT students.</small>
 <table><thead><tr><th>Absent</th><th>Name</th><th>Class</th><th>Result</th><th>Manual</th></tr></thead><tbody id="tb"></tbody></table>
